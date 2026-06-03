@@ -30,27 +30,74 @@ def load(path: str) -> dict:
         return json.load(f)
 
 
+# ─── Metric accessors (prefer server-side, fall back to client-side) ──
+
+def server_throughput(data: dict) -> float:
+    """Throughput measured on the server tier if available, else client-side."""
+    sm = data.get("server_metrics")
+    if sm and sm.get("server_throughput_ops"):
+        return sm["server_throughput_ops"]
+    return data.get("throughput_ops", 0)
+
+
+def worker_count(data: dict, fallback: int) -> int:
+    sm = data.get("server_metrics") or {}
+    return sm.get("workers") or data.get("workers") or fallback
+
+
+def by_node(data: dict) -> dict:
+    """Per-node load breakdown (server metrics preferred, then client view)."""
+    sm = data.get("server_metrics") or {}
+    return sm.get("by_node") or data.get("client_by_node") or {}
+
+
 # ─── Plot 1: Throughput comparison bar chart ─────────────────────────
 
 def plot_throughput_comparison(result_files: list[str], out_dir: str):
-    """Bar chart comparing throughput across architectures and ticket models."""
+    """Bar chart comparing server-side throughput across runs."""
     labels, values = [], []
     for path in result_files:
         data = load(path)
         name = os.path.basename(path).replace("results_", "").replace(".json", "")
         labels.append(name)
-        values.append(data.get("throughput_ops", 0))
+        values.append(server_throughput(data))
 
     fig, ax = plt.subplots(figsize=(10, 5))
     colors = ["#2196F3", "#4CAF50", "#FF9800", "#F44336"][:len(labels)]
     bars = ax.bar(labels, values, color=colors, edgecolor="white", linewidth=0.5)
-    ax.set_ylabel("Throughput (ops/s)")
-    ax.set_title("Throughput Comparison")
+    ax.set_ylabel("Throughput (ops/s) – server-side")
+    ax.set_title("Throughput Comparison (server-side metrics)")
     ax.bar_label(bars, fmt="%.0f")
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "throughput_comparison.png"), dpi=150)
     plt.close(fig)
-    print(f"  → throughput_comparison.png")
+    print(f"  -> throughput_comparison.png")
+
+
+# ─── Plot: per-node load distribution (the "workers graph") ──────────
+
+def plot_worker_distribution(result_files: list[str], out_dir: str):
+    """Grouped bar chart of how many requests each node processed per run."""
+    for path in result_files:
+        data = load(path)
+        dist = by_node(data)
+        if not dist:
+            continue
+        name = os.path.basename(path).replace("results_", "").replace(".json", "")
+        nodes = sorted(dist)
+        counts = [dist[n] for n in nodes]
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+        bars = ax.bar(nodes, counts, color="#009688", edgecolor="white")
+        ax.set_xlabel("Node (server / worker)")
+        ax.set_ylabel("Requests processed")
+        ax.set_title(f"Load Distribution Across Nodes – {name}")
+        ax.bar_label(bars, fmt="%.0f")
+        fig.tight_layout()
+        fname = f"worker_distribution_{name}.png"
+        fig.savefig(os.path.join(out_dir, fname), dpi=150)
+        plt.close(fig)
+        print(f"  -> {fname}")
 
 
 # ─── Plot 2: Success / Rejected / Error stacked bars ────────────────
@@ -82,7 +129,7 @@ def plot_outcome_breakdown(result_files: list[str], out_dir: str):
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "outcome_breakdown.png"), dpi=150)
     plt.close(fig)
-    print(f"  → outcome_breakdown.png")
+    print(f"  -> outcome_breakdown.png")
 
 
 # ─── Plot 3: Scalability – Throughput vs workers ────────────────────
@@ -92,8 +139,8 @@ def plot_scalability(result_files: list[str], out_dir: str):
     points = []
     for i, path in enumerate(result_files, start=1):
         data = load(path)
-        workers = data.get("workers", i)       # fallback to file index
-        points.append((workers, data.get("throughput_ops", 0)))
+        workers = worker_count(data, i)        # from server metrics, else index
+        points.append((workers, server_throughput(data)))
     points.sort()
 
     xs, ys = zip(*points)
@@ -106,7 +153,7 @@ def plot_scalability(result_files: list[str], out_dir: str):
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, "scalability.png"), dpi=150)
     plt.close(fig)
-    print(f"  → scalability.png")
+    print(f"  -> scalability.png")
 
 
 # ─── Plot 4: Latency distribution histogram ─────────────────────────
@@ -132,7 +179,7 @@ def plot_latency_distribution(result_files: list[str], out_dir: str):
         fname = f"latency_{name}.png"
         fig.savefig(os.path.join(out_dir, fname), dpi=150)
         plt.close(fig)
-        print(f"  → {fname}")
+        print(f"  -> {fname}")
 
 
 # ─── Main ────────────────────────────────────────────────────────────
@@ -151,6 +198,7 @@ def main():
         plot_throughput_comparison(args.results, args.output_dir)
         plot_outcome_breakdown(args.results, args.output_dir)
         plot_latency_distribution(args.results, args.output_dir)
+        plot_worker_distribution(args.results, args.output_dir)
 
     if args.scalability:
         plot_scalability(args.scalability, args.output_dir)

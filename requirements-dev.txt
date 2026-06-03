@@ -1,0 +1,5 @@
+# Dev/test-only dependencies (not needed to run the system).
+# Used by tests/test_backend_fakeredis.py to verify the Lua backend logic
+# (idempotency, no overselling, metrics) without a real Redis/RabbitMQ.
+fakeredis[lua]>=2.20
+httpx>=0.27          # FastAPI TestClient (direct server integration test)

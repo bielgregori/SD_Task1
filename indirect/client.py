@@ -17,7 +17,7 @@ import argparse
 import json
 import threading
 import time
-import uuid
+from collections import Counter
 
 import pika
 
@@ -30,6 +30,29 @@ from shared.config import (
     RABBITMQ_REQUEST_QUEUE,
     RABBITMQ_RESPONSE_QUEUE,
 )
+
+
+def read_server_metrics() -> dict | None:
+    """Best-effort read of server-side metrics from Redis (workers record them).
+
+    The client may run on a different host; if Redis is not reachable from
+    here, the per-worker breakdown is still derived from the result messages.
+    """
+    try:
+        from shared.redis_backend import read_metrics
+        return read_metrics("indirect")
+    except Exception as exc:
+        print(f"[warn] could not read server metrics from Redis: {exc}")
+        return None
+
+
+def reset_server_state() -> None:
+    """Best-effort reset of ticket/dedup/metric state for a clean run."""
+    try:
+        from shared.redis_backend import reset_all
+        reset_all()
+    except Exception as exc:
+        print(f"[warn] could not reset Redis state: {exc}")
 
 
 def parse_benchmark(path: str) -> list[dict]:
@@ -157,6 +180,10 @@ class BenchmarkProducer:
         errors = sum(1 for r in all_results if r.get("status") == "ERROR")
         latencies = [r.get("latency_ms", 0) for r in all_results]
 
+        # Load distribution across workers, derived from the result messages
+        # (each result carries the worker_id that processed it).
+        by_node = dict(Counter(r["worker_id"] for r in all_results if r.get("worker_id")))
+
         return {
             "architecture": "indirect",
             "total_requests": len(ops),
@@ -164,12 +191,14 @@ class BenchmarkProducer:
             "success": success,
             "rejected": rejected,
             "errors": errors,
+            # ── client-side (end-to-end, includes queue wait) view ──
             "total_time_s": round(t_total, 3),
             "publish_time_s": round(t_published, 3),
             "throughput_ops": round(len(ops) / t_total, 1) if t_total > 0 else 0,
             "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0,
             "max_latency_ms": round(max(latencies), 2) if latencies else 0,
             "min_latency_ms": round(min(latencies), 2) if latencies else 0,
+            "client_by_node": by_node,
             "details": all_results,
         }
 
@@ -180,18 +209,29 @@ def main():
     parser.add_argument("--concurrency", type=int, default=200, help="(reserved for future use)")
     parser.add_argument("--timeout", type=int, default=300, help="Max wait seconds for results")
     parser.add_argument("--output", default="results_indirect.json", help="Output JSON file")
+    parser.add_argument("--reset", action=argparse.BooleanOptionalAction, default=True,
+                        help="Reset Redis ticket/dedup/metric state before the run")
     args = parser.parse_args()
 
     ops = parse_benchmark(args.benchmark)
     print(f"Loaded {len(ops)} operations from {args.benchmark}")
 
+    if args.reset:
+        reset_server_state()
+
     producer = BenchmarkProducer(concurrency=args.concurrency, timeout=args.timeout)
     summary = producer.run(ops)
+
+    # Server-side metrics (recorded by the workers themselves, read via Redis)
+    server = read_server_metrics()
+    if server:
+        summary["server_metrics"] = server
 
     with open(args.output, "w") as f:
         json.dump(summary, f, indent=2)
 
     print(f"\n{'='*50}")
+    print(f"  CLIENT (end-to-end, includes queue wait)")
     print(f"  Total time:      {summary['total_time_s']} s")
     print(f"  Publish time:    {summary['publish_time_s']} s")
     print(f"  Throughput:      {summary['throughput_ops']} ops/s")
@@ -200,6 +240,14 @@ def main():
     print(f"  Errors:          {summary['errors']}")
     print(f"  Responses:       {summary['responses_received']}/{summary['total_requests']}")
     print(f"  Avg latency:     {summary['avg_latency_ms']} ms")
+    if server:
+        print(f"  {'-'*46}")
+        print(f"  SERVER-SIDE (measured on workers, via Redis)")
+        print(f"  Throughput:      {server['server_throughput_ops']} ops/s "
+              f"(window {server['server_window_s']} s)")
+        print(f"  Avg latency:     {server['server_avg_latency_ms']} ms (service time)")
+        print(f"  Workers:         {server['workers']}  ->  {server['by_node']}")
+        print(f"  Replays:         {server['replays']} (redeliveries deduped)")
     print(f"{'='*50}")
     print(f"Results saved to {args.output}")
 

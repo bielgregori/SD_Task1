@@ -29,5 +29,9 @@ TOTAL_TICKETS = int(os.getenv("TOTAL_TICKETS", 20_000))
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", 8001))
 
+# Identifies this REST server / worker process in the per-node server-side
+# metrics.  Defaults are derived per process so two local servers differ.
+NODE_ID = os.getenv("NODE_ID", "")
+
 # ─── Benchmark ──────────────────────────────────────────────────────
 BENCHMARK_CONCURRENCY = int(os.getenv("BENCHMARK_CONCURRENCY", 100))

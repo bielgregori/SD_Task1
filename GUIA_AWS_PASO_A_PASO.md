@@ -37,11 +37,11 @@
 
 ```bash
 # En tu terminal local (Linux/Mac):
-chmod 400 tu-clave.pem
-ssh -i tu-clave.pem ubuntu@<PUBLIC_IP>
+chmod 400 keys.pem
+ssh -i keys.pem ubuntu@98.86.110.43
 
 # En Windows (PowerShell):
-ssh -i tu-clave.pem ubuntu@<PUBLIC_IP>
+ssh -i keys.pem ubuntu@98.86.110.43
 
 # En Windows (PuTTY):
 # Convierte .pem a .ppk con PuTTYgen, luego conecta
@@ -63,7 +63,7 @@ cd TU_REPO
 ### Opción B: scp (copiar archivos)
 ```bash
 # Desde tu PC local:
-scp -i tu-clave.pem -r "c:\Users\usuari\OneDrive - URV\Documentos\UNI\3r curs\Sistemes distribuits\Task1\Prova1\*" ubuntu@<PUBLIC_IP>:~/ticket-system/
+scp -i keys.pem -r "c:\Users\usuari\OneDrive - URV\Documentos\UNI\3r curs\Sistemes distribuits\Task1\Prova1\*" ubuntu@98.86.110.43:~/ticket-system/
 
 # En la VM:
 cd ~/ticket-system
@@ -71,7 +71,7 @@ cd ~/ticket-system
 
 ### Opción C: FileZilla (interfaz gráfica)
 1. Abre FileZilla → File → Site Manager
-2. Protocol: SFTP, Host: `<PUBLIC_IP>`, User: `ubuntu`
+2. Protocol: SFTP, Host: `98.86.110.43`, User: `ubuntu`
 3. Key file: tu `.pem`
 4. Arrastra la carpeta `Prova1` a la VM
 
@@ -235,7 +235,7 @@ ls analysis/plots/
 Para descargar las gráficas a tu PC:
 ```bash
 # Desde tu PC local:
-scp -i tu-clave.pem ubuntu@<PUBLIC_IP>:~/ticket-system/analysis/plots/* .
+scp -i keys.pem ubuntu@98.86.110.43:~/ticket-system/analysis/plots/* .
 ```
 
 ---
@@ -299,7 +299,7 @@ python3 indirect/client.py \
 | `Connection refused` RabbitMQ | `sudo systemctl start rabbitmq-server` |
 | NGINX `502 Bad Gateway` | Verifica que los servidores FastAPI están corriendo |
 | `ModuleNotFoundError` | `pip3 install -r requirements.txt` |
-| Permiso denegado `.pem` | `chmod 400 tu-clave.pem` |
+| Permiso denegado `.pem` | `chmod 400 keys.pem` |
 | Puerto bloqueado | Revisa Security Group en EC2 → Inbound Rules |
 
 ---

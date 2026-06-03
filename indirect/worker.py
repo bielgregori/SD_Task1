@@ -38,7 +38,9 @@ class TicketWorker:
     def __init__(self, worker_id: str = "worker-0", prefetch: int = 10):
         self.worker_id = worker_id
         self.prefetch = prefetch
-        self.store = TicketStore()
+        # The store records server-side metrics per worker (node_id) under the
+        # "indirect" namespace, shared with every other worker via Redis.
+        self.store = TicketStore(node_id=worker_id, arch="indirect")
         self._connection = None
         self._channel = None
 

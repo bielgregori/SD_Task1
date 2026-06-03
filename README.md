@@ -123,11 +123,77 @@ All settings via environment variables:
 | `RABBITMQ_PASS` | `guest` | RabbitMQ password |
 | `TOTAL_TICKETS` | `20000` | Max ticket capacity |
 | `SERVER_PORT` | `8001` | Default REST server port |
+| `NODE_ID` | *(auto)* | Identifies this server/worker in the per-node server-side metrics |
+
+## Server-Side Metrics
+
+Performance is measured **on the server tier**, not at the client. Every buy is
+a single atomic Lua script that also records metrics into Redis (the shared
+backend), so they aggregate automatically across all REST servers / workers no
+matter how the system was scaled.
+
+- **Direct**: `GET /metrics` returns the global aggregate (any instance behind
+  NGINX answers it, since the data lives in Redis).
+- **Indirect**: the workers record the metrics; the client reads them from Redis
+  (best-effort) and also derives the per-worker split from the result messages.
+
+Each result file now carries a `server_metrics` block:
+
+| Field | Meaning |
+|-------|---------|
+| `server_throughput_ops` | Deliveries/sec over the real processing window (first→last request, on Redis' own clock) |
+| `server_window_s` | Duration the server tier was actively processing |
+| `server_avg/min/max_latency_ms` | Server-side **service time** per request (excludes client transport & queue wait) |
+| `workers` / `by_node` | How load was distributed across nodes (the "workers graph") |
+| `replays` | Redelivered messages that were deduplicated instead of re-sold |
+
+> The client-side numbers (`throughput_ops`, `avg_latency_ms`) are kept for
+> reference. For the indirect path they include **queue-waiting time**, which is
+> why client-side latency looks huge — the server-side metric is the real one.
+
+## Fault Tolerance
+
+- **Exactly-once per `request_id`.** Each buy is idempotent: the Lua script
+  records the outcome per request id, so a message **redelivered after a worker
+  crash** replays the original result instead of selling a second ticket. This
+  keeps the `≤ TOTAL_TICKETS` invariant even when nodes fail mid-run. (`INCR`
+  alone is not idempotent — this is the fix.)
+- **RabbitMQ** requeues a dead worker's unacked messages to the survivors.
+- **NGINX** (direct) uses `max_fails` + `proxy_next_upstream` so a crashed REST
+  server is taken out of rotation and in-flight requests retry on a healthy one.
+
+Reproduce it:
+```bash
+export PYTHONPATH=$(pwd)
+python scripts/fault_tolerance_test.py \
+    --benchmark benchmarks/benchmark_unnumbered.txt \
+    --workers 3 --kill-after 1.5 --restart
+```
+It starts workers, runs the benchmark, **kills a worker mid-run** (optionally
+starting a replacement), then asserts no overselling and that load moved to the
+survivors.
 
 ## Dynamic Scaling
 
 - **REST**: Add/remove `uvicorn` instances, update NGINX upstream, reload (`nginx -s reload`)
 - **RabbitMQ**: Start/stop `worker.py` processes at any time – RabbitMQ's fair dispatch handles rebalancing
+
+Sweep throughput vs. worker count (produces the scalability / workers graph):
+```bash
+export PYTHONPATH=$(pwd)
+python scripts/scaling_sweep.py \
+    --benchmark benchmarks/benchmark_unnumbered.txt --workers 1 2 4 8 --output-dir results
+python analysis/plot_results.py --scalability results/results_indirect_*w.json --output-dir analysis/plots
+```
+
+## Testing
+
+The backend's correctness guarantees (no overselling, idempotent redelivery,
+metric aggregation) can be verified locally **without** Redis/RabbitMQ:
+```bash
+pip install -r requirements-dev.txt
+python tests/test_backend_fakeredis.py
+```
 
 ## Ticket Models
 
