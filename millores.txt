@@ -1,0 +1,5 @@
+aws
+metriques a indirecta
+fault tolerance - Provar si fallen nodes si aguanta el sistema (workers)
+Dinamic scaling - similar a fault tolerance
+la grafica de workers amb directa i indirecta
