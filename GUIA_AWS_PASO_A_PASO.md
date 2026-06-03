@@ -97,18 +97,32 @@ pip3 install -r requirements.txt
 
 ---
 
-## PASO 5 – Generar los benchmarks
+## PASO 5 – Usar benchmarks existentes
+
+Si ya dispones de los ficheros de benchmark en la carpeta `benchmarks/`, no hace falta regenerarlos. Comprueba que existen y que contienen los archivos esperados:
 
 ```bash
-python3 benchmarks/generate.py
-python3 benchmarks/generate.py --high-contention
-
-# Verificar que se crearon:
+# Desde el directorio del proyecto:
 ls -la benchmarks/
-# Deberías ver:
+# Debes ver (según lo que uses):
 #   benchmark_unnumbered.txt
 #   benchmark_numbered.txt
-#   benchmark_numbered_highcont.txt
+#   benchmark_numbered_highcont.txt  (si hiciste high-contention)
+```
+
+Si no tienes los ficheros en la VM, cópialos desde tu equipo local con `scp` o súbelos a la VM por SFTP/FileZilla. Ejemplo (PowerShell):
+
+```powershell
+# Copiar todo el directorio local benchmarks/ a la VM
+scp -i .\keys.pem -r 'C:\ruta\a\benchmarks\*' ubuntu@<PUBLIC_IP>:~/ticket-system/benchmarks/
+```
+
+Si prefieres regenerarlos en la VM (opcional), el script está disponible en `benchmarks/generate.py` y puede ejecutarse así:
+
+```bash
+# Opcional: regenerar localmente en la VM (no es necesario si ya tienes los archivos)
+python3 benchmarks/generate.py
+python3 benchmarks/generate.py --high-contention
 ```
 
 ---
