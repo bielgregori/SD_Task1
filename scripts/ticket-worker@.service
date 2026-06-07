@@ -1,0 +1,24 @@
+[Unit]
+# systemd template unit – one RabbitMQ ticket worker instance.
+#   systemctl start ticket-worker@1        # instance 1
+#   systemctl start ticket-worker@2        # a 2nd worker on the SAME VM
+# Normally you run a single instance per VM (ticket-worker@1).
+# __PROJECT_DIR__ is filled in by scripts/deploy_worker.sh on install.
+Description=Concert Ticket RabbitMQ worker (instance %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=__PROJECT_DIR__
+EnvironmentFile=/etc/ticket-worker.env
+# %i lets several instances on one host stay distinct in the per-node metrics.
+ExecStart=/usr/bin/python3 indirect/worker.py --worker-id ${WORKER_ID}-%i --prefetch ${PREFETCH}
+# Auto-restart on crash → demonstrates fault tolerance: a killed worker's
+# unacked messages are requeued by RabbitMQ and the restarted process resumes.
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

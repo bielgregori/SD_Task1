@@ -1,0 +1,5 @@
+# Shell scripts and systemd units run on Ubuntu VMs – always store/check out
+# with LF so the shebang and `\` line continuations don't break on CRLF.
+*.sh         text eol=lf
+*.service    text eol=lf
+scripts/*    text eol=lf

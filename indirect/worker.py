@@ -8,9 +8,13 @@ the Redis TicketStore, and publishes results to `ticket_results`.
 Supports dynamic scaling: start/stop workers at any time.
 
 Usage:
-    python indirect/worker.py                       # single worker
+    python indirect/worker.py                       # single worker (id = hostname)
     python indirect/worker.py --prefetch 20         # tuned prefetch
     python indirect/worker.py --worker-id w1        # named worker
+
+One worker per VM: leave --worker-id unset and each machine identifies itself
+by its hostname automatically (see shared.config.WORKER_ID). Point the worker
+at the central broker VM with the RABBITMQ_HOST / REDIS_HOST env vars.
 """
 
 import argparse
@@ -28,6 +32,8 @@ from shared.config import (
     RABBITMQ_VHOST,
     RABBITMQ_REQUEST_QUEUE,
     RABBITMQ_RESPONSE_QUEUE,
+    WORKER_ID,
+    WORKER_PREFETCH,
 )
 from shared.redis_backend import TicketStore
 
@@ -118,6 +124,10 @@ class TicketWorker:
         signal.signal(signal.SIGINT, _shutdown)
         signal.signal(signal.SIGTERM, _shutdown)
 
+        print(
+            f"[{self.worker_id}] Connected to RabbitMQ {RABBITMQ_HOST}:{RABBITMQ_PORT} "
+            f"(user={RABBITMQ_USER}, vhost={RABBITMQ_VHOST})"
+        )
         print(f"[{self.worker_id}] Waiting for requests (prefetch={self.prefetch})…")
         try:
             self._channel.start_consuming()
@@ -131,8 +141,17 @@ class TicketWorker:
 
 def main():
     parser = argparse.ArgumentParser(description="RabbitMQ ticket worker")
-    parser.add_argument("--worker-id", default="worker-0", help="Unique worker name")
-    parser.add_argument("--prefetch", type=int, default=10, help="Prefetch count")
+    parser.add_argument(
+        "--worker-id",
+        default=WORKER_ID,
+        help="Unique worker name (default: WORKER_ID env or this machine's hostname)",
+    )
+    parser.add_argument(
+        "--prefetch",
+        type=int,
+        default=WORKER_PREFETCH,
+        help="Prefetch count (default: PREFETCH env or 10)",
+    )
     args = parser.parse_args()
 
     worker = TicketWorker(worker_id=args.worker_id, prefetch=args.prefetch)

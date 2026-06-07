@@ -74,16 +74,35 @@ python analysis/plot_results.py \
 
 ## AWS Academy Deployment
 
+### Single VM (everything on one box)
 ```bash
-# On each VM:
-sudo ./scripts/deploy.sh
-
-# Adjust direct/nginx.conf upstream IPs for multi-VM setup
-# Then run:
-./scripts/run_benchmark.sh
+sudo ./scripts/deploy.sh           # Redis + RabbitMQ + NGINX + deps
+./scripts/run_benchmark.sh         # automated sweep
 ```
 
-See `scripts/deploy.sh` for full setup and `scripts/run_benchmark.sh` for automated sweep.
+### One worker per VM (distributed)
+Run each RabbitMQ worker on its **own** EC2 instance, all sharing one central
+broker (Redis + RabbitMQ):
+
+```bash
+# On the BROKER VM (once) – opens Redis/RabbitMQ for remote workers:
+sudo ./scripts/deploy_broker.sh
+
+# On EACH WORKER VM – installs deps + a systemd worker pointing at the broker:
+sudo BROKER_HOST=<broker-private-ip> ./scripts/deploy_worker.sh
+
+# On the CLIENT VM – point at the broker and run the benchmark:
+export RABBITMQ_HOST=<broker-private-ip> REDIS_HOST=<broker-private-ip>
+export RABBITMQ_USER=ticket RABBITMQ_PASS=ticket
+python indirect/client.py --benchmark benchmarks/benchmark_unnumbered.txt \
+    --output results_indirect_unnumbered.json
+```
+
+Each worker VM auto-identifies by its hostname in the per-node metrics, runs as
+an auto-restarting `systemd` service (`ticket-worker@1`), and RabbitMQ's fair
+dispatch balances load across all VMs. Full walkthrough: **`GUIA_VM_WORKERS.md`**.
+
+See `scripts/deploy.sh` for single-box setup and `scripts/run_benchmark.sh` for the automated sweep.
 
 ## Project Structure
 
@@ -104,7 +123,10 @@ See `scripts/deploy.sh` for full setup and `scripts/run_benchmark.sh` for automa
 ├── analysis/
 │   └── plot_results.py      # Performance plot generator
 ├── scripts/
-│   ├── deploy.sh            # AWS VM setup script
+│   ├── deploy.sh            # Single-VM setup (Redis+RabbitMQ+NGINX+deps)
+│   ├── deploy_broker.sh     # Central broker VM (Redis+RabbitMQ, remote-open)
+│   ├── deploy_worker.sh     # Per-worker VM setup + systemd service
+│   ├── ticket-worker@.service # systemd template unit (one worker per VM)
 │   └── run_benchmark.sh     # Full benchmark sweep
 └── requirements.txt
 ```
