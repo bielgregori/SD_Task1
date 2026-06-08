@@ -46,8 +46,13 @@ echo "════════════════════════�
 echo "[1/4] Installing Python dependencies…"
 apt-get update -qq
 apt-get install -y -qq python3 python3-pip
-python3 -m pip install --upgrade pip
-python3 -m pip install -r "$PROJECT_DIR/requirements.txt"
+# A worker only needs pika (RabbitMQ) + redis, so install just those instead
+# of the full requirements.txt (fastapi/matplotlib/… are not used here and
+# their upgrades clash with Debian-managed packages on Ubuntu 24.04).
+# Ubuntu 24.04+ marks the system Python "externally managed" (PEP 668), so we
+# pass --break-system-packages to install system-wide on this throwaway lab VM
+# (the systemd unit runs /usr/bin/python3, which then finds these packages).
+python3 -m pip install --break-system-packages pika redis
 
 # ── 2. Environment file (read by the systemd unit) ──────────────────
 echo "[2/4] Writing /etc/ticket-worker.env…"

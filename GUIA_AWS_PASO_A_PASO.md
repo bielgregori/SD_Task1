@@ -4,6 +4,20 @@
 - Acceso a **AWS Academy Learner Lab**
 - Par de claves SSH (`.pem`) descargado
 
+## Distribución de las 4 VMs
+
+Para esta práctica usa las 4 instancias así:
+
+| Rol | IP pública |
+|-----|------------|
+| Broker / VM principal | `13.220.216.37` |
+| Worker 1 | `18.209.162.85` |
+| Worker 2 | `100.31.65.80` |
+| Worker 3 | `3.87.18.80` |
+| Worker 4 | `204.236.242.163` |
+
+Abre una terminal SSH para cada VM. La VM del broker será la que ejecute Redis + RabbitMQ; las otras tres ejecutarán los workers.
+
 ---
 
 ## PASO 1 – Crear la instancia EC2
@@ -38,13 +52,25 @@
 ```bash
 # En tu terminal local (Linux/Mac):
 chmod 400 keys.pem
-ssh -i keys.pem ubuntu@98.86.110.43
+ssh -i keys.pem ubuntu@13.220.216.37
 
 # En Windows (PowerShell):
-ssh -i keys.pem ubuntu@98.86.110.43
+# No uses chmod en PowerShell; no existe en Windows.
+ssh -i keys.pem ubuntu@13.220.216.37
+# Si OpenSSH te da un error de permisos con la clave, puedes restringirlos con:
+# icacls .\keys.pem /inheritance:r /grant:r "$env:USERNAME:(R)"
 
 # En Windows (PuTTY):
 # Convierte .pem a .ppk con PuTTYgen, luego conecta
+```
+
+Abre también estas sesiones SSH en otras terminales:
+
+```powershell
+ssh -i keys.pem ubuntu@18.209.162.85
+ssh -i keys.pem ubuntu@100.31.65.80
+ssh -i keys.pem ubuntu@3.87.18.80
+ssh -i keys.pem ubuntu@204.236.242.163
 ```
 
 ---
@@ -60,18 +86,26 @@ git clone https://github.com/TU_USUARIO/TU_REPO.git
 cd TU_REPO
 ```
 
+> Importante: este paso se hace en **cada VM** donde quieras trabajar. Si una
+> máquina no tiene la carpeta del proyecto, `cd ~/ticket-system` o `cd TU_REPO`
+> fallará con `No such file or directory`.
+
 ### Opción B: scp (copiar archivos)
 ```bash
 # Desde tu PC local:
-scp -i keys.pem -r "c:\Users\usuari\OneDrive - URV\Documentos\UNI\3r curs\Sistemes distribuits\Task1\Prova1\*" ubuntu@98.86.110.43:~/ticket-system/
+scp -i keys.pem -r .\direct .\indirect .\shared .\scripts .\analysis .\benchmarks .\tests .\requirements*.txt .\README.md .\GUIA_*.md ubuntu@13.220.216.37:~/ticket-system/
 
 # En la VM:
 cd ~/ticket-system
 ```
 
+> Si quieres preparar otra VM, repite el `scp` hacia la IP de esa máquina. El
+> directorio `~/ticket-system` existe solo en la VM donde has copiado los
+> archivos.
+
 ### Opción C: FileZilla (interfaz gráfica)
 1. Abre FileZilla → File → Site Manager
-2. Protocol: SFTP, Host: `98.86.110.43`, User: `ubuntu`
+2. Protocol: SFTP, Host: `13.220.216.37`, User: `ubuntu`
 3. Key file: tu `.pem`
 4. Arrastra la carpeta `Prova1` a la VM
 
@@ -195,11 +229,10 @@ python3 direct/client.py \
 
 ## PASO 7 – Ejecutar la Arquitectura INDIRECTA (RabbitMQ)
 
-> ℹ️ **Esta guía ejecuta todos los workers en UNA sola VM** (con `&`), que es lo
-> más rápido para probar. Si tu entrega pide **un worker por máquina virtual**
-> (broker central + N VMs worker), sigue **`GUIA_VM_WORKERS.md`** en su lugar:
-> usa `scripts/deploy_broker.sh` + `scripts/deploy_worker.sh` y cada worker corre
-> como servicio systemd en su propia VM.
+> ℹ️ **Esta guía incluye la topología de 4 VMs** para la práctica: broker en
+> `13.220.216.37` y workers en `18.209.162.85`, `100.31.65.80`, `3.87.18.80`
+> y `204.236.242.163`. Si tu profesor pide un despliegue multi-VM automatizado,
+> usa **`GUIA_VM_WORKERS.md`** como referencia para broker + workers.
 
 ### 7.1 Arrancar workers
 ```bash
@@ -255,7 +288,7 @@ ls analysis/plots/
 Para descargar las gráficas a tu PC:
 ```bash
 # Desde tu PC local:
-scp -i keys.pem ubuntu@98.86.110.43:~/ticket-system/analysis/plots/* .
+scp -i keys.pem ubuntu@13.220.216.37:~/ticket-system/analysis/plots/* .
 ```
 
 ---
