@@ -31,9 +31,29 @@ su propia VM**. La topología es:
 
 ---
 
+## Tus 4 VMs
+
+En esta práctica usa estas IPs y estos roles:
+
+| Rol | IP pública |
+|-----|------------|
+| Broker / Redis + RabbitMQ | `13.220.216.37` |
+| Worker 1 | `18.209.162.85` |
+| Worker 2 | `100.31.65.80` |
+| Worker 3 | `3.87.18.80` |
+| Worker 4 | `204.236.242.163` |
+
+El flujo correcto es este:
+
+1. Entrar por SSH en las 4 VMs.
+2. Copiar el proyecto a cada VM.
+3. Ejecutar `deploy_broker.sh` solo en la VM broker.
+4. Ejecutar `deploy_worker.sh` una vez en cada worker.
+5. Lanzar el benchmark desde la VM cliente o desde tu PC.
+
 ## PASO 1 – Crear las instancias EC2
 
-Crea **1 + N** instancias Ubuntu 22.04 (1 broker + N workers). Para el client
+Crea **4 instancias Ubuntu 22.04**: 1 broker y 3 workers. Para el client
 puedes reutilizar tu PC o una instancia más.
 
 **Security Group** (Inbound). Lo más simple es un único SG compartido que
@@ -51,24 +71,51 @@ permita todo el tráfico **dentro del propio grupo** + SSH/UI desde tu IP:
 
 ---
 
-## PASO 2 – Subir el proyecto a TODAS las VMs
+## PASO 2 – Subir el proyecto a TODAS las VMs (scp)
 
-En cada VM (broker y workers):
+La forma más cómoda es copiar el código desde tu PC con `scp` (no necesitas que
+el repo sea público). Desde **PowerShell**, en la carpeta del proyecto, sube a
+las 4 VMs de golpe:
 
-```bash
-sudo apt-get update && sudo apt-get install -y git
-git clone https://github.com/TU_USUARIO/TU_REPO.git ticket-system
-cd ticket-system
-chmod +x scripts/*.sh
+```powershell
+cd "C:\Users\efren\OneDrive\Escriptori\Sistemes Distribuits\SD_Task1"
+
+$ips = @("18.209.162.85","100.31.65.80","3.87.18.80","204.236.242.163","13.220.216.37")
+
+foreach ($ip in $ips) {
+    # 1) crear la carpeta destino en la VM
+    ssh -i keys.pem -o StrictHostKeyChecking=no ubuntu@$ip "mkdir -p ~/ticket-system"
+
+    # 2) copiar solo lo necesario (evita plots, results, Report.pdf, etc.)
+    scp -i keys.pem -r `
+        direct indirect shared scripts analysis benchmarks tests `
+        requirements.txt requirements-dev.txt README.md `
+        ubuntu@${ip}:~/ticket-system/
+
+    # 3) marcar los scripts como ejecutables
+    ssh -i keys.pem ubuntu@$ip "chmod +x ~/ticket-system/scripts/*.sh"
+}
 ```
 
-(o usa `scp`/FileZilla como en `GUIA_AWS_PASO_A_PASO.md`).
+Notas:
+- En PowerShell escribe **`${ip}:`** (con llaves): `$ip:` se interpretaría como
+  un *scope* de variable. El backtick `` ` `` es la continuación de línea.
+- Si OpenSSH se queja de permisos de `keys.pem`, restríngelos una vez:
+  `icacls .\keys.pem /inheritance:r /grant:r "$env:USERNAME:(R)"`.
+- Los scripts ya están en **LF**, así que no tendrás el error `bad interpreter:
+  ^M`. Si alguna vez aparece, en la VM: `sed -i 's/\r$//' scripts/*.sh`.
+
+El destino queda en `~/ticket-system` en cada VM.
+
+> Alternativa con git: en cada VM, `sudo apt-get install -y git` y
+> `git clone <tu-repo> ticket-system` (requiere que el repo sea accesible).
+> También puedes usar FileZilla (SFTP) como en `GUIA_AWS_PASO_A_PASO.md`.
 
 ---
 
 ## PASO 3 – Configurar la BROKER VM
 
-En la VM del broker:
+Abre la terminal SSH de la VM broker `13.220.216.37` y ejecuta este paso allí:
 
 ```bash
 sudo ./scripts/deploy_broker.sh
@@ -123,8 +170,57 @@ sudo journalctl -u 'ticket-worker@1' -f
 > `sudo BROKER_HOST=… WORKER_ID=worker-1 ./scripts/deploy_worker.sh`.
 > Para varios procesos en una misma VM: añade `INSTANCES=2`.
 
-Repite el paso 4 en cada worker VM. **Añadir un worker = configurar una VM
-nueva**; RabbitMQ reparte la carga automáticamente (fair dispatch).
+Repite el paso 4 una vez en cada worker VM:
+
+1. SSH a `18.209.162.85` y ejecuta `deploy_worker.sh`.
+2. SSH a `100.31.65.80` y ejecuta `deploy_worker.sh`.
+3. SSH a `3.87.18.80` y ejecuta `deploy_worker.sh`.
+4. SSH a `204.236.242.163` y ejecuta `deploy_worker.sh`.
+
+**Añadir un worker = configurar una VM nueva**; RabbitMQ reparte la carga
+automáticamente (fair dispatch).
+
+---
+
+## PASO 4-bis – Lanzar N workers de golpe (NO ir una a una)
+
+No hace falta repetir el PASO 4 a mano en cada VM si usas `User Data` o una
+AMI. Tienes dos formas de replicar workers:
+
+### Opción A – User Data (recomendada: N VMs en un solo "Launch")
+
+Cada instancia se auto-configura al arrancar.
+
+1. Abre `scripts/worker_userdata.sh` y edita `BROKER_HOST` (IP privada del
+   broker) y `REPO` (la URL de tu repositorio; debe ser accesible desde la VM).
+2. EC2 → **Launch Instance**:
+   - **Number of instances**: `N` (los que quieras)
+   - **Advanced details → User data**: pega el contenido de
+     `scripts/worker_userdata.sh`
+3. **Launch**. Las N VMs clonan el proyecto y ejecutan `deploy_worker.sh` solas.
+
+Comprobar (en cualquiera de ellas, tras ~1-2 min):
+```bash
+sudo tail -f /var/log/cloud-init-output.log     # progreso del arranque
+sudo systemctl status 'ticket-worker@*'
+```
+
+### Opción B – AMI (imagen pre-configurada)
+
+Si tu repo es privado o no quieres clonar en cada arranque:
+
+1. Configura **una** worker VM con el PASO 4 y comprueba que el servicio corre.
+2. EC2 → selecciona esa instancia → **Actions → Image and templates → Create
+   image**. Espera a que la AMI esté `available`.
+3. **Launch Instance** desde esa AMI con **Number of instances: N**.
+
+Cada copia arranca con el código + el servicio ya instalados y se conecta al
+broker automáticamente (el `WORKER_ID` = hostname hace que cada una sea un nodo
+distinto). Si cambia la IP del broker, edita `/etc/ticket-worker.env` y
+`sudo systemctl restart 'ticket-worker@*'`.
+
+> 💡 La IP **privada** del broker no cambia mientras la VM siga encendida, así
+> que la AMI/User Data siguen siendo válidos durante toda la sesión del lab.
 
 ---
 
@@ -135,7 +231,7 @@ En la VM cliente (o tu PC), apunta al broker y lanza el cliente:
 ```bash
 cd ticket-system
 export PYTHONPATH=$(pwd)
-export RABBITMQ_HOST=10.0.1.10 REDIS_HOST=10.0.1.10
+export RABBITMQ_HOST=<IP_PRIVADA_DEL_BROKER> REDIS_HOST=<IP_PRIVADA_DEL_BROKER>
 export RABBITMQ_USER=ticket RABBITMQ_PASS=ticket
 # export REDIS_PASSWORD=miredis   # solo si lo configuraste
 
@@ -146,6 +242,9 @@ python3 indirect/client.py \
 
 La salida **SERVER-SIDE** muestra `Workers: N -> {hostname1: …, hostname2: …}`:
 esa es la distribución real de carga **entre las VMs**.
+
+> En el comando anterior, sustituye `<IP_PRIVADA_DEL_BROKER>` por la IP
+> privada que te imprime `deploy_broker.sh`.
 
 ---
 

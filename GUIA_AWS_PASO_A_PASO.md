@@ -195,6 +195,12 @@ python3 direct/client.py \
 
 ## PASO 7 – Ejecutar la Arquitectura INDIRECTA (RabbitMQ)
 
+> ℹ️ **Esta guía ejecuta todos los workers en UNA sola VM** (con `&`), que es lo
+> más rápido para probar. Si tu entrega pide **un worker por máquina virtual**
+> (broker central + N VMs worker), sigue **`GUIA_VM_WORKERS.md`** en su lugar:
+> usa `scripts/deploy_broker.sh` + `scripts/deploy_worker.sh` y cada worker corre
+> como servicio systemd en su propia VM.
+
 ### 7.1 Arrancar workers
 ```bash
 # Worker 1
